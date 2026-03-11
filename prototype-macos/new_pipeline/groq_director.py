@@ -124,7 +124,7 @@ def _resolve_screenshot_file(plan_dict: dict, available_screens: list[str]) -> d
     return plan_dict
 
 
-def generate_scene_plan(config: dict) -> dict:
+def generate_scene_plan(config):
     """
     Groq director: returns a validated plan dict with exactly 8 scenes.
     Edge cases:
@@ -136,7 +136,7 @@ def generate_scene_plan(config: dict) -> dict:
     if not api_key:
         raise RuntimeError("Missing CONFIG['groq_api_key']. Add your Groq API key and rerun.")
 
-    assets_base_path = Path(config["drive_base_path"]) / "assets"
+    assets_base_path = config["drive_base_path"]
     mockups = list_png_files(assets_base_path / "mockups")
     screenshots = list_png_files(assets_base_path / "screenshots")
     symbols = list_symbol_files(assets_base_path, str(config.get("app_niche") or "generic"))
