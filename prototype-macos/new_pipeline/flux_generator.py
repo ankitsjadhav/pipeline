@@ -1,14 +1,10 @@
-from __future__ import annotations
-
-import sys
 import os
-
-# Fix for Colab multiprocessing issue
-if '__main__' not in sys.modules:
-    import types
-    sys.modules['__main__'] = types.ModuleType('__main__')
-
+import sys
 os.environ["HF_HOME"] = "/content/drive/MyDrive/hf_cache"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+import torch
+from diffusers import FluxPipeline
 
 import time
 from pathlib import Path
@@ -37,38 +33,18 @@ def get_dimensions(output_format: str) -> tuple[int, int]:
     return formats.get(output_format, (1080, 1920))
 
 
-def load_flux_model(config: dict):
-    """
-    Load FLUX.1 Schnell with Drive-backed HF cache.
-    Edge cases:
-    - bfloat16 not supported → fallback float16
-    - CPU runtime → still loads but generation will be slower
-    """
-    try:
-        import torch
-        from diffusers import FluxPipeline
-
-        torch.multiprocessing.set_start_method('spawn', force=True) if torch.multiprocessing.get_start_method(allow_none=True) != 'spawn' else None
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-        print("Loading FLUX.1 Schnell from Drive cache...", flush=True)
-        pipe = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-schnell",
-            torch_dtype=torch.float16,
-        )
-
-        try:
-            pipe.enable_sequential_cpu_offload()
-        except Exception:
-            pass
-        try:
-            pipe.enable_attention_slicing()
-        except Exception:
-            pass
-        print("FLUX loaded successfully", flush=True)
-        return pipe
-    except Exception as e:
-        raise RuntimeError(f"Failed to load FLUX: {e}") from e
+def load_flux_model(config):
+    print("Loading FLUX.1 Schnell in bfloat16 with CPU offload...")
+    pipe = FluxPipeline.from_pretrained(
+        "black-forest-labs/FLUX.1-schnell",
+        torch_dtype=torch.bfloat16,
+        use_safetensors=True,
+    )
+    pipe.enable_sequential_cpu_offload()
+    pipe.vae.enable_slicing()
+    pipe.vae.enable_tiling()
+    print("✅ FLUX loaded successfully")
+    return pipe
 
 
 def _is_black_image(pil_image) -> bool:
