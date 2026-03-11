@@ -3,6 +3,11 @@ import sys
 os.environ["HF_HOME"] = "/content/drive/MyDrive/hf_cache"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+# Fix for Colab multiprocessing / "No module named '__main__'" issue
+if "__main__" not in sys.modules:
+    import types
+    sys.modules["__main__"] = types.ModuleType("__main__")
+
 import torch
 from diffusers import FluxPipeline
 
