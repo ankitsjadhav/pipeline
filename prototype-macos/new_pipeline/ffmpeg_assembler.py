@@ -4,8 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
-from .flux_generator import get_dimensions
-from .utils import ensure_dir
+from flux_generator import get_dimensions
+from utils import ensure_dir
 
 
 POST_PROCESS = (

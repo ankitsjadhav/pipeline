@@ -6,8 +6,8 @@ from pathlib import Path
 
 from groq import Groq
 
-from .schemas import Plan
-from .utils import list_png_files, list_symbol_files, safe_json_dumps
+from schemas import Plan
+from utils import list_png_files, list_symbol_files, safe_json_dumps
 
 
 SYSTEM_PROMPT = """

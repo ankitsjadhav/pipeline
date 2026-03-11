@@ -4,11 +4,11 @@ import shutil
 import time
 from pathlib import Path
 
-from .ffmpeg_assembler import assemble_video, generate_audio
-from .flux_generator import generate_image, load_flux_model
-from .groq_director import generate_scene_plan
-from .smart_compositor import composite_scene
-from .utils import (
+from ffmpeg_assembler import assemble_video, generate_audio
+from flux_generator import generate_image, load_flux_model
+from groq_director import generate_scene_plan
+from smart_compositor import composite_scene
+from utils import (
     check_drive_space,
     check_required_assets,
     create_folder_structure,

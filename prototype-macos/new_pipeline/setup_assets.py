@@ -5,7 +5,7 @@ from pathlib import Path
 
 import requests
 
-from .utils import create_folder_structure, ensure_dir
+from utils import create_folder_structure, ensure_dir
 
 
 FONTS: dict[str, str] = {

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .utils import ensure_dir
+from utils import ensure_dir
 
 
 HARDCODED_SUFFIX = (
