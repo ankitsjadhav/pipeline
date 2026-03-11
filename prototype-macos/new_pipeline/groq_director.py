@@ -6,7 +6,6 @@ from pathlib import Path
 
 from groq import Groq
 
-from schemas import Plan
 from utils import list_png_files, list_symbol_files, safe_json_dumps
 
 
@@ -93,6 +92,14 @@ def normalize_plan(raw: dict, config: dict) -> dict:
         if "scene_type" in scene and "type" not in scene:
             scene["type"] = scene.pop("scene_type")
 
+        # Normalize scene type values (e.g. "Type A" -> "A")
+        if "type" in scene and isinstance(scene.get("type"), str):
+            t = scene["type"].strip()
+            if t.lower().startswith("type "):
+                t = t[5:].strip()
+            if t.upper() in ("A", "B", "C"):
+                scene["type"] = t.upper()
+
         # Fix duration field name
         if "duration" in scene and "duration_sec" not in scene:
             scene["duration_sec"] = scene.pop("duration")
@@ -124,20 +131,6 @@ def normalize_plan(raw: dict, config: dict) -> dict:
         )
 
     return raw
-
-
-def _validate_and_postprocess(plan_dict: dict) -> dict:
-    if "scenes" not in plan_dict:
-        raise ValueError("Missing scenes key")
-    if len(plan_dict["scenes"]) != 8:
-        raise ValueError(f"Expected 8 scenes, got {len(plan_dict['scenes'])}")
-    for scene in plan_dict["scenes"]:
-        if scene.get("type") == "A":
-            scene["flux_prompt"] = None
-    plan_dict = fix_duplicate_movements(plan_dict)
-    # Pydantic validation (raises on mismatch)
-    Plan.model_validate(plan_dict)
-    return plan_dict
 
 
 def _resolve_symbol_file(plan_dict: dict, available_symbols: set[str]) -> dict:
@@ -179,7 +172,6 @@ def generate_scene_plan(config):
     mockups = list_png_files(assets_base_path / "mockups")
     screenshots = list_png_files(assets_base_path / "screenshots")
     symbols = list_symbol_files(assets_base_path, str(config.get("app_niche") or "generic"))
-    available_symbols = set(symbols)
 
     client = Groq(api_key=api_key)
 
@@ -214,9 +206,9 @@ def generate_scene_plan(config):
             raw = _strip_fences(response.choices[0].message.content or "")
             plan_dict = json.loads(raw)
             plan_dict = normalize_plan(plan_dict, config)
-            plan_dict = _resolve_symbol_file(plan_dict, available_symbols)
-            plan_dict = _resolve_screenshot_file(plan_dict, screenshots)
-            plan_dict = _validate_and_postprocess(plan_dict)
+            scenes = plan_dict.get("scenes") or []
+            if len(scenes) != 8:
+                raise ValueError(f"Expected 8 scenes, got {len(scenes)}")
             return plan_dict
         except Exception as e:
             msg = str(e)
