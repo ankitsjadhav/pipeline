@@ -22,7 +22,7 @@ SCENE TYPES:
 
 STRICT FLUX PROMPT RULES (apply to every scene, every niche, no exceptions):
 - End every flux_prompt with: cinematic lighting, photorealistic, 8k, no text, no symbols, no writing, no letters, no signs
-- Never include in any flux_prompt: open books, scrolls, calendars, newspapers, chalkboards, zodiac wheels, charts, any writing surface, any screen content, any UI elements
+- Never include in any flux_prompt: books (open or closed), hands holding books, open books, scrolls, calendars, newspapers, chalkboards, zodiac wheels, charts, any writing surface, any screen content, any UI elements — books cause gibberish
 - Use only atmospheric, text-free, symbol-free backgrounds that match the niche mood
 - Fitness niche: gym equipment, outdoor run, green smoothie, energy
 - Astrology niche: cosmic space, candlelight, dark velvet, smoke, stars
@@ -53,6 +53,13 @@ TEXT RULES:
 - Text must match the emotional tone of the scene
 - Keep text short: maximum 6 words per overlay
 - text_color must contrast with scene: dark scene = white or gold, light scene = dark color
+
+VOICEOVER LINE RULES:
+- voiceover_line is REQUIRED for every scene.
+- It must be a real spoken sentence in the ad language.
+- It must never be empty or null.
+- Example: 'Discover your daily horoscope with AstroGuide'
+- Each scene must have a unique voiceover line that matches what is happening in that scene.
 """
 
 
@@ -87,7 +94,7 @@ def _strip_fences(raw: str) -> str:
 
 
 def normalize_plan(raw: dict, config: dict) -> dict:
-    for scene in raw.get("scenes", []):
+    for i, scene in enumerate(raw.get("scenes", [])):
         # Fix scene type field name
         if "scene_type" in scene and "type" not in scene:
             scene["type"] = scene.pop("scene_type")
@@ -112,9 +119,9 @@ def normalize_plan(raw: dict, config: dict) -> dict:
         if "id" not in scene:
             scene["id"] = raw["scenes"].index(scene) + 1
 
-        # Add missing voiceover_line if not present
-        if "voiceover_line" not in scene:
-            scene["voiceover_line"] = ""
+        # Add missing/blank voiceover_line if not present
+        if not scene.get("voiceover_line", "").strip():
+            scene["voiceover_line"] = f"Scene {i+1} of your ad"
 
     if "app_name" not in raw:
         raw["app_name"] = config.get("app_name", "")
