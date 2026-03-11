@@ -11,6 +11,7 @@ if "__main__" not in sys.modules:
 import torch
 from diffusers import FluxPipeline
 
+import gc
 import time
 from pathlib import Path
 
@@ -69,67 +70,74 @@ def generate_image(pipe, scene: dict, config: dict, images_dir: Path) -> Path | 
     if not flux_prompt or not isinstance(flux_prompt, str):
         raise RuntimeError(f"Scene {scene.get('id')} missing flux_prompt for type {scene.get('type')}")
 
+    # CLIP 77-token limit: truncate to 200 chars to avoid silent cutoff
+    flux_prompt = flux_prompt[:200]
     prompt = flux_prompt + HARDCODED_SUFFIX + ", " + QUALITY_ADDITION
 
     try:
         import torch
     except Exception as e:
         raise RuntimeError(f"torch missing; install dependencies first: {e}") from e
-
-    width, height = get_dimensions(str(config.get("output_format") or "reels"))
-    if not torch.cuda.is_available():
-        print("WARNING: GPU not available. Reducing resolution for CPU runtime.", flush=True)
-        width, height = (768, 768)
+    from PIL import Image
 
     out_path = images_dir / f"scene_{int(scene['id']):02d}.png"
     ensure_dir(out_path.parent)
 
-    last_err: Exception | None = None
-    for attempt in range(2):
-        try:
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
+    # T4-safe: generate at small resolution only; never pass 1920x1080 to FLUX
+    FALLBACK_RESOLUTIONS = [(768, 432), (640, 360), (512, 288)]
+    UPSCALE_SIZE = (1920, 1080)
 
+    last_err: Exception | None = None
+    image = None
+    for (gen_w, gen_h) in FALLBACK_RESOLUTIONS:
+        try:
+            torch.cuda.empty_cache()
+            gc.collect()
             result = pipe(
                 prompt=prompt,
-                width=width,
-                height=height,
+                width=gen_w,
+                height=gen_h,
                 num_inference_steps=4,
                 guidance_scale=0.0,
                 generator=torch.Generator("cuda").manual_seed(int(time.time())),
             )
             image = result.images[0]
             if _is_black_image(image):
-                print(f"Black image detected (scene {scene['id']}) attempt {attempt+1}, retrying...", flush=True)
+                print(f"Black image detected (scene {scene['id']}) at {gen_w}x{gen_h}, trying next resolution...", flush=True)
                 continue
-            try:
-                image.save(out_path)
-            except Exception:
-                # fallback to /content/images then copy
-                tmp = Path("/content/images")
-                ensure_dir(tmp)
-                tmp_path = tmp / out_path.name
-                image.save(tmp_path)
-                tmp_path.replace(out_path)
-            print(f"Scene {scene['id']} image saved: {out_path}", flush=True)
-            return out_path
+            break
         except torch.cuda.OutOfMemoryError as e:  # type: ignore[attr-defined]
-            print(f"OOM on attempt {attempt+1} (scene {scene['id']}), clearing cache and retrying...", flush=True)
+            print(f"OOM at {gen_w}x{gen_h} (scene {scene['id']}), clearing cache and trying next size...", flush=True)
             last_err = e
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
-            try:
-                pipe.enable_model_cpu_offload()
-            except Exception:
-                pass
-            time.sleep(3)
+            torch.cuda.empty_cache()
+            gc.collect()
+            continue
         except Exception as e:
             last_err = e
-            time.sleep(2)
+            torch.cuda.empty_cache()
+            gc.collect()
+            continue
 
-    raise RuntimeError(f"FLUX generation failed for scene {scene.get('id')} after 2 attempts: {last_err}")
+    if image is None:
+        raise RuntimeError(
+            f"FLUX generation failed for scene {scene.get('id')} after all resolution fallbacks (768x432, 640x360, 512x288). Last error: {last_err}"
+        )
+
+    # Upscale to 1920x1080 with PIL (never pass 1920x1080 to the pipeline)
+    image = image.resize(UPSCALE_SIZE, Image.Resampling.LANCZOS)
+
+    try:
+        image.save(out_path)
+    except Exception:
+        tmp = Path("/content/images")
+        ensure_dir(tmp)
+        tmp_path = tmp / out_path.name
+        image.save(tmp_path)
+        tmp_path.replace(out_path)
+    print(f"Scene {scene['id']} image saved: {out_path}", flush=True)
+
+    torch.cuda.empty_cache()
+    gc.collect()
+    time.sleep(2)
+    return out_path
 
