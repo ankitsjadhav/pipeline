@@ -89,6 +89,10 @@ def _strip_fences(raw: str) -> str:
 
 def normalize_plan(raw: dict, config: dict) -> dict:
     for scene in raw.get("scenes", []):
+        # Fix scene type field name
+        if "scene_type" in scene and "type" not in scene:
+            scene["type"] = scene.pop("scene_type")
+
         # Fix duration field name
         if "duration" in scene and "duration_sec" not in scene:
             scene["duration_sec"] = scene.pop("duration")
