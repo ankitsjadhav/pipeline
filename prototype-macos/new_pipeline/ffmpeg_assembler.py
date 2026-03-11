@@ -16,6 +16,28 @@ POST_PROCESS = (
 
 TEMP_VIDEO_FILENAME = "temp_video.mp4"
 
+FFMPEG_LOGLEVEL = "error"
+
+
+def _run_ffmpeg(args: list[str]) -> subprocess.CompletedProcess:
+    """
+    Run ffmpeg with consistent logging and error reporting.
+    Always injects: -hide_banner -loglevel error
+    Prints stderr if returncode != 0.
+    """
+    cmd = ["ffmpeg", "-hide_banner", "-loglevel", FFMPEG_LOGLEVEL] + args
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        stderr = (res.stderr or "").strip()
+        if stderr:
+            print(stderr[:2000], flush=True)
+        raise RuntimeError(f"ffmpeg failed (exit {res.returncode})")
+    return res
+
+
+def _abs(p: Path) -> str:
+    return str(Path(p).resolve())
+
 
 def _which(name: str) -> str | None:
     import shutil
@@ -29,8 +51,8 @@ def ensure_ffmpeg_installed() -> None:
     # Auto-install in Colab if possible.
     try:
         if Path("/content").exists():
-            subprocess.run(["apt-get", "update", "-y"], check=False, capture_output=True)
-            subprocess.run(["apt-get", "install", "-y", "ffmpeg"], check=False, capture_output=True)
+            subprocess.run(["apt-get", "update", "-y"], check=False, capture_output=True, text=True)
+            subprocess.run(["apt-get", "install", "-y", "ffmpeg"], check=False, capture_output=True, text=True)
     except Exception:
         pass
     if _which("ffmpeg") and _which("ffprobe"):
@@ -91,7 +113,8 @@ def generate_audio(scene: dict, config: dict, out_dir: Path) -> Path | None:
     else:
         lang = "en"
 
-    out_path = ensure_dir(out_dir) / f"audio_{int(scene['id']):02d}.mp3"
+    duration_sec = float(scene.get("duration_sec") or 3)
+    out_path = (ensure_dir(out_dir) / f"audio_{int(scene['id']):02d}.mp3").resolve()
     try:
         gTTS(text=text, lang=lang, slow=False).save(str(out_path))
         return out_path
@@ -102,10 +125,28 @@ def generate_audio(scene: dict, config: dict, out_dir: Path) -> Path | None:
             gTTS(text=text, lang=alt, slow=False).save(str(out_path))
             return out_path
         except Exception:
-            return None
+            # Silent audio fallback so pipeline continues.
+            try:
+                _run_ffmpeg(
+                    [
+                        "-y",
+                        "-f",
+                        "lavfi",
+                        "-i",
+                        "anullsrc=r=44100:cl=mono",
+                        "-t",
+                        f"{duration_sec:.3f}",
+                        _abs(out_path),
+                    ]
+                )
+                return out_path
+            except Exception as e2:
+                print(f"Silent audio fallback failed for scene {scene.get('id')}: {e2}", flush=True)
+                return None
 
 
 def _write_concat_file(paths: list[Path], out_path: Path) -> None:
+    out_path = out_path.resolve()
     out_path.write_text("".join([f"file '{str(p.resolve())}'\n" for p in paths]), encoding="utf-8")
 
 
@@ -115,22 +156,16 @@ def _merge_audio(audio_paths: list[Path], work_dir: Path) -> Path | None:
         return None
     concat_txt = work_dir / "audio_concat.txt"
     _write_concat_file(audio_paths, concat_txt)
-    merged = work_dir / "merged_audio.mp3"
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_txt), "-c", "copy", str(merged)],
-        capture_output=True,
-    )
+    merged = (work_dir / "merged_audio.mp3").resolve()
+    _run_ffmpeg(["-y", "-f", "concat", "-safe", "0", "-i", _abs(concat_txt), "-c", "copy", _abs(merged)])
     return merged if merged.exists() else None
 
 
 def _concat_video_no_transitions(clip_paths: list[Path], work_dir: Path) -> Path:
     concat_txt = work_dir / "concat.txt"
     _write_concat_file(clip_paths, concat_txt)
-    out = work_dir / TEMP_VIDEO_FILENAME
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_txt), "-c", "copy", str(out)],
-        capture_output=True,
-    )
+    out = (work_dir / TEMP_VIDEO_FILENAME).resolve()
+    _run_ffmpeg(["-y", "-f", "concat", "-safe", "0", "-i", _abs(concat_txt), "-c", "copy", _abs(out)])
     if not out.exists():
         raise RuntimeError("FFmpeg concat failed; temp_video.mp4 not created")
     return out
@@ -157,11 +192,11 @@ def _assemble_with_xfade(scenes: list[dict], clip_paths: list[Path], work_dir: P
     if not clip_paths:
         raise RuntimeError("No clips to assemble")
     if len(clip_paths) == 1:
-        out = work_dir / TEMP_VIDEO_FILENAME
+        out = (work_dir / TEMP_VIDEO_FILENAME).resolve()
         out.write_bytes(Path(clip_paths[0]).read_bytes())
         return out
 
-    out = work_dir / TEMP_VIDEO_FILENAME
+    out = (work_dir / TEMP_VIDEO_FILENAME).resolve()
     filter_parts: list[str] = []
     offsets: list[float] = []
     # offsets are cumulative clip durations minus fade overlaps
@@ -189,21 +224,11 @@ def _assemble_with_xfade(scenes: list[dict], clip_paths: list[Path], work_dir: P
     filter_chain = ";".join(filter_parts)
     last_v = f"[v{len(clip_paths)-1}]"
 
-    cmd = ["ffmpeg", "-y"]
+    args: list[str] = ["-y"]
     for p in clip_paths:
-        cmd += ["-i", str(Path(p).resolve())]
-    cmd += [
-        "-filter_complex",
-        filter_chain,
-        "-map",
-        last_v,
-        "-c:v",
-        "libx264",
-        "-pix_fmt",
-        "yuv420p",
-        str(out),
-    ]
-    subprocess.run(cmd, check=True, capture_output=True)
+        args += ["-i", _abs(Path(p))]
+    args += ["-filter_complex", filter_chain, "-map", last_v, "-c:v", "libx264", "-pix_fmt", "yuv420p", _abs(out)]
+    _run_ffmpeg(args)
     if not out.exists():
         raise RuntimeError("xfade assembly failed; temp_video.mp4 not created")
     return out
@@ -217,33 +242,33 @@ def _generate_clip(scene: dict, img_path: Path, fps: int, width: int, height: in
     zoompan = get_zoompan_filter(movement, duration_frames, width, height)
     ff_grade = get_ffmpeg_grade(grade)
     fade_out_start = max(0.1, duration_sec - 0.25)
-    clip_path = work_dir / f"clip_{int(scene['id']):02d}.mp4"
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-loop",
-        "1",
-        "-i",
-        str(img_path.resolve()),
-        "-vf",
-        f"{zoompan},{ff_grade},{POST_PROCESS},fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start}:d=0.25",
-        "-t",
-        str(duration_sec),
-        "-r",
-        str(fps),
-        "-c:v",
-        "libx264",
-        "-crf",
-        "18",
-        "-preset",
-        "medium",
-        "-pix_fmt",
-        "yuv420p",
-        str(clip_path),
-    ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0:
-        print(f"FFmpeg clip error (scene {scene.get('id')}): {res.stderr[:400]}", flush=True)
+    clip_path = (work_dir / f"clip_{int(scene['id']):02d}.mp4").resolve()
+    try:
+        _run_ffmpeg(
+            [
+                "-y",
+                "-loop",
+                "1",
+                "-i",
+                _abs(img_path),
+                "-vf",
+                f"{zoompan},{ff_grade},{POST_PROCESS},fade=t=in:st=0:d=0.25,fade=t=out:st={fade_out_start}:d=0.25",
+                "-t",
+                f"{duration_sec:.3f}",
+                "-r",
+                str(fps),
+                "-c:v",
+                "libx264",
+                "-crf",
+                "18",
+                "-preset",
+                "medium",
+                "-pix_fmt",
+                "yuv420p",
+                _abs(clip_path),
+            ]
+        )
+    except Exception:
         return None
     return clip_path
 
@@ -251,10 +276,19 @@ def _generate_clip(scene: dict, img_path: Path, fps: int, width: int, height: in
 def _burn_subtitles(video_in: Path, srt_path: Path, video_out: Path) -> None:
     path_str = str(srt_path.resolve()).replace("'", "'\\''")
     vf = f"subtitles='{path_str}'"
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(video_in), "-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video_out)],
-        check=True,
-        capture_output=True,
+    _run_ffmpeg(
+        [
+            "-y",
+            "-i",
+            _abs(video_in),
+            "-vf",
+            vf,
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            _abs(video_out),
+        ]
     )
 
 
@@ -288,8 +322,8 @@ def assemble_video(
     ensure_ffmpeg_installed()
     fps = 30
     width, height = get_dimensions(str(config.get("output_format") or "reels"))
-    ensure_dir(work_dir)
-    ensure_dir(output_dir)
+    work_dir = ensure_dir(work_dir).resolve()
+    output_dir = ensure_dir(output_dir).resolve()
 
     clip_paths: list[Path] = []
     clip_audio_paths: list[Path] = []
@@ -310,18 +344,31 @@ def assemble_video(
     merged_audio = _merge_audio(clip_audio_paths, work_dir)
     temp_video = _assemble_with_xfade(used_scenes, clip_paths, work_dir)
 
-    out_path = output_dir / f"video_{video_index:02d}.mp4"
+    out_path = (output_dir / f"video_{video_index:02d}.mp4").resolve()
     if merged_audio and merged_audio.exists():
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", str(temp_video), "-i", str(merged_audio), "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(out_path)],
-            capture_output=True,
+        _run_ffmpeg(
+            [
+                "-y",
+                "-i",
+                _abs(temp_video),
+                "-i",
+                _abs(merged_audio),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                _abs(out_path),
+            ]
         )
     else:
         out_path.write_bytes(temp_video.read_bytes())
 
     # Burn captions last (optional)
     if captions_srt and captions_srt.exists():
-        subtitled = work_dir / f"video_{video_index:02d}_sub.mp4"
+        subtitled = (work_dir / f"video_{video_index:02d}_sub.mp4").resolve()
         _burn_subtitles(out_path, captions_srt, subtitled)
         out_path.write_bytes(subtitled.read_bytes())
 

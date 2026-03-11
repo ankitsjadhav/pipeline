@@ -81,7 +81,7 @@ def composite_type_a(scene: dict, config: dict) -> Image.Image:
     if not mockup_path.exists():
         pngs = sorted(mockup_dir.glob("*.png"))
         if not pngs:
-            raise RuntimeError("Type A requires mockup PNGs in assets/mockups/")
+            raise RuntimeError("Add phone mockup PNGs to assets/mockups/ on Drive")
         mockup_path = pngs[0]
     if not screenshot_file:
         raise RuntimeError("Type A overlay requires screenshot_file")
@@ -89,7 +89,7 @@ def composite_type_a(scene: dict, config: dict) -> Image.Image:
     if not screenshot_path.exists():
         pngs = sorted(screenshots_dir.glob("*.png"))
         if not pngs:
-            raise RuntimeError("Type A requires screenshots in assets/screenshots/")
+            raise RuntimeError("Add app screenshots to assets/screenshots/ on Drive")
         screenshot_path = pngs[0]
 
     mockup_bgr = cv2.imread(str(mockup_path))
@@ -282,7 +282,10 @@ def add_text_overlay(base: Image.Image, overlay: dict, config: dict) -> Image.Im
     try:
         font = ImageFont.truetype(str(font_path), base_size)
     except Exception:
-        font = ImageFont.load_default()
+        try:
+            font = ImageFont.load_default()
+        except Exception:
+            return base
         print(f"Font not found at {font_path}, using default", flush=True)
 
     img = base.copy()

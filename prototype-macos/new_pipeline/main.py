@@ -111,7 +111,7 @@ def run_pipeline(config: dict | None = None) -> None:
 
         print(f"\n=== Generating Video {video_idx}/{cfg['video_count']} ===", flush=True)
         try:
-            plan = generate_scene_plan(cfg, assets_base_path=paths["assets"])
+            plan = generate_scene_plan(cfg)
             scenes = plan["scenes"]
 
             composited_paths: list[Path] = []

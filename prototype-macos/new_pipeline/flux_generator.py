@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+os.environ["HF_HOME"] = "/content/drive/MyDrive/hf_cache"
+
 import time
 from pathlib import Path
 
@@ -35,21 +37,18 @@ def load_flux_model(config: dict):
     - bfloat16 not supported → fallback float16
     - CPU runtime → still loads but generation will be slower
     """
-    os.environ["HF_HOME"] = "/content/drive/MyDrive/hf_cache"
     try:
         import torch
         from diffusers import FluxPipeline
 
         print("Loading FLUX.1 Schnell from Drive cache...", flush=True)
-        dtype = torch.bfloat16
-        try:
-            pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-schnell", torch_dtype=dtype)
-        except Exception:
-            dtype = torch.float16
-            pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-schnell", torch_dtype=dtype)
+        pipe = FluxPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-schnell",
+            torch_dtype=torch.float16,
+        )
 
         try:
-            pipe.enable_model_cpu_offload()
+            pipe.enable_sequential_cpu_offload()
         except Exception:
             pass
         try:
