@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import sys
 import os
+
+# Fix for Colab multiprocessing issue
+if '__main__' not in sys.modules:
+    import types
+    sys.modules['__main__'] = types.ModuleType('__main__')
+
 os.environ["HF_HOME"] = "/content/drive/MyDrive/hf_cache"
 
 import time
@@ -40,6 +47,9 @@ def load_flux_model(config: dict):
     try:
         import torch
         from diffusers import FluxPipeline
+
+        torch.multiprocessing.set_start_method('spawn', force=True) if torch.multiprocessing.get_start_method(allow_none=True) != 'spawn' else None
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
         print("Loading FLUX.1 Schnell from Drive cache...", flush=True)
         pipe = FluxPipeline.from_pretrained(
