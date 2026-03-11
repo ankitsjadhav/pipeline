@@ -1,0 +1,5 @@
+# Colab pipeline — install in notebook or: pip install -r requirements-colab.txt
+requests>=2.31.0
+gtts>=2.4.0
+faster-whisper>=1.0.0
+Pillow>=10.0.0

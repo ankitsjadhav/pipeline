@@ -1,0 +1,60 @@
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Jupyter / Colab
+.ipynb_checkpoints/
+
+# Project caches / generated artifacts
+.ugc_cache/
+prototype-macos/**/.ugc_cache/
+
+# Generated outputs (audio/video/images)
+prototype-macos/output/
+prototype-macos/colab/**/broll/
+prototype-macos/colab/**/clips/
+prototype-macos/colab/**/final.mp4
+prototype-macos/colab/**/voiceover.wav
+prototype-macos/colab/**/voiceover.txt
+prototype-macos/colab/**/captions.srt
+prototype-macos/colab/**/ad_assets.json
+
+# Media outputs anywhere
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.mp3
+*.png
+*.jpg
+*.jpeg
+*.webp
+
