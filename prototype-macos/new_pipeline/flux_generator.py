@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 from utils import ensure_dir
 
@@ -73,12 +74,6 @@ def generate_image(pipe, scene: dict, config: dict, images_dir: Path) -> Path | 
     # CLIP 77-token limit: truncate to 200 chars to avoid silent cutoff
     flux_prompt = flux_prompt[:200]
     prompt = flux_prompt + HARDCODED_SUFFIX + ", " + QUALITY_ADDITION
-
-    try:
-        import torch
-    except Exception as e:
-        raise RuntimeError(f"torch missing; install dependencies first: {e}") from e
-    from PIL import Image
 
     out_path = images_dir / f"scene_{int(scene['id']):02d}.png"
     ensure_dir(out_path.parent)
