@@ -19,11 +19,11 @@ from utils import (
 
 # User edits this dict in Colab before running.
 CONFIG = {
-    "app_name": "YourAppName",
+    "app_name": "AstroGuide",
     "app_niche": "astrology",
-    "app_description": "One or two sentence description of what the app does",
-    "target_audience": "Who the ad is for, e.g. young Indian women 18-30",
-    "ad_language": "hindi",
+    "app_description": "An astrology app that gives daily horoscope, kundali matching and vedic predictions in English",
+    "target_audience": "Indian women aged 18-35 interested in astrology and spirituality",
+    "ad_language": "english",
     "video_count": 8,
     "output_format": "reels",  # reels | square | landscape
     "groq_api_key": "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",

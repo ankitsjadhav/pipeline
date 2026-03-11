@@ -44,22 +44,22 @@ class Overlay(BaseModel):
 
 
 class Scene(BaseModel):
-    id: int
+    id: int | None = None
     type: SceneType
-    duration_sec: int = Field(ge=1, le=15)
-    voiceover_line: str
+    duration_sec: int | None = Field(default=3, ge=1, le=15)
+    voiceover_line: str | None = ""
     flux_prompt: str | None = None
     camera_movement: str
     color_grade: str
-    transition_out: str
+    transition_out: str | None = "crossfade"
     overlay: Overlay = Field(default_factory=Overlay)
 
 
 class Plan(BaseModel):
-    app_name: str
-    app_niche: str
-    video_topic: str
-    dominant_mood: str
-    voiceover_full: str
+    app_name: str | None = ""
+    app_niche: str | None = ""
+    video_topic: str | None = ""
+    dominant_mood: str | None = "energetic"
+    voiceover_full: str | None = ""
     scenes: list[Scene]
 

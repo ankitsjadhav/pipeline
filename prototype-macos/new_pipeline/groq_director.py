@@ -87,6 +87,41 @@ def _strip_fences(raw: str) -> str:
     return s.strip()
 
 
+def normalize_plan(raw: dict, config: dict) -> dict:
+    for scene in raw.get("scenes", []):
+        # Fix duration field name
+        if "duration" in scene and "duration_sec" not in scene:
+            scene["duration_sec"] = scene.pop("duration")
+
+        # Fix transition field name
+        if "transition" in scene and "transition_out" not in scene:
+            scene["transition_out"] = scene.pop("transition")
+
+        # Add missing id if not present
+        if "id" not in scene:
+            scene["id"] = raw["scenes"].index(scene) + 1
+
+        # Add missing voiceover_line if not present
+        if "voiceover_line" not in scene:
+            scene["voiceover_line"] = ""
+
+    if "app_name" not in raw:
+        raw["app_name"] = config.get("app_name", "")
+    if "app_niche" not in raw:
+        raw["app_niche"] = config.get("app_niche", "")
+    if "video_topic" not in raw:
+        raw["video_topic"] = raw.get("topic", "Ad Video")
+    if "dominant_mood" not in raw:
+        raw["dominant_mood"] = "energetic"
+    if "voiceover_full" not in raw:
+        raw["voiceover_full"] = " ".join(
+            s.get("voiceover_line", "")
+            for s in raw.get("scenes", [])
+        )
+
+    return raw
+
+
 def _validate_and_postprocess(plan_dict: dict) -> dict:
     if "scenes" not in plan_dict:
         raise ValueError("Missing scenes key")
@@ -174,6 +209,7 @@ def generate_scene_plan(config):
             )
             raw = _strip_fences(response.choices[0].message.content or "")
             plan_dict = json.loads(raw)
+            plan_dict = normalize_plan(plan_dict, config)
             plan_dict = _resolve_symbol_file(plan_dict, available_symbols)
             plan_dict = _resolve_screenshot_file(plan_dict, screenshots)
             plan_dict = _validate_and_postprocess(plan_dict)
