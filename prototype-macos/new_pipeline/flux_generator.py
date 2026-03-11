@@ -8,8 +8,8 @@ if "__main__" not in sys.modules:
     import types
     sys.modules["__main__"] = types.ModuleType("__main__")
 
-import torch
-from diffusers import FluxPipeline
+# Lazy import: do NOT import torch or diffusers here. They are imported inside
+# load_flux_model() so Colab's pre-installed torch is used once, when FLUX loads.
 
 import gc
 import time
@@ -41,6 +41,8 @@ def get_dimensions(output_format: str) -> tuple[int, int]:
 
 
 def load_flux_model(config):
+    import torch
+    from diffusers import FluxPipeline
     print("Loading FLUX.1 Schnell in bfloat16 with CPU offload...")
     pipe = FluxPipeline.from_pretrained(
         "black-forest-labs/FLUX.1-schnell",
@@ -75,6 +77,7 @@ def generate_image(pipe, scene: dict, config: dict, images_dir: Path) -> Path | 
     flux_prompt = flux_prompt[:200]
     prompt = flux_prompt + HARDCODED_SUFFIX + ", " + QUALITY_ADDITION
 
+    import torch
     out_path = images_dir / f"scene_{int(scene['id']):02d}.png"
     ensure_dir(out_path.parent)
 
