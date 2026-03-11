@@ -136,7 +136,7 @@ def generate_scene_plan(config):
     if not api_key:
         raise RuntimeError("Missing CONFIG['groq_api_key']. Add your Groq API key and rerun.")
 
-    assets_base_path = config["drive_base_path"]
+    assets_base_path = Path(config["drive_base_path"])
     mockups = list_png_files(assets_base_path / "mockups")
     screenshots = list_png_files(assets_base_path / "screenshots")
     symbols = list_symbol_files(assets_base_path, str(config.get("app_niche") or "generic"))
