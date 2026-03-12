@@ -37,9 +37,12 @@ def _cleanup_temp(paths: dict[str, Path]) -> None:
         if p and p.exists():
             try:
                 shutil.rmtree(p)
-            except Exception:
-                pass
-            p.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                print(f"Cleanup {folder}: {e}", flush=True)
+            try:
+                p.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                print(f"Recreate {folder}: {e}", flush=True)
     print("Temp files cleared", flush=True)
 
 
@@ -47,6 +50,11 @@ def _generate_captions_whisper(audio_path: Path, srt_out: Path, model_name: str 
     """
     Keeps faster-whisper in the pipeline as required.
     """
+    audio_path_p = Path(str(audio_path)) if audio_path else None
+    if not audio_path_p or not audio_path_p.exists():
+        raise RuntimeError(f"Audio file for captions not found: {audio_path}")
+    if audio_path_p.stat().st_size < 1000:
+        raise RuntimeError(f"Audio file too small for captions: {audio_path}")
     try:
         from faster_whisper import WhisperModel
     except Exception as e:
@@ -54,7 +62,7 @@ def _generate_captions_whisper(audio_path: Path, srt_out: Path, model_name: str 
 
     srt_out.parent.mkdir(parents=True, exist_ok=True)
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
-    segments, _info = model.transcribe(str(audio_path), word_timestamps=False, vad_filter=True)
+    segments, _info = model.transcribe(str(audio_path_p), word_timestamps=False, vad_filter=True)
 
     def _fmt(ts: float) -> str:
         ms = int(round(ts * 1000))
@@ -90,6 +98,9 @@ def run_pipeline(config: dict | None = None) -> None:
 
     if not str(cfg.get("groq_api_key") or "").strip() or str(cfg.get("groq_api_key")).strip() == "your_groq_api_key_here":
         raise RuntimeError("Missing CONFIG['groq_api_key']. Add your Groq API key and rerun.")
+    drive_base = str(cfg.get("drive_base_path") or "").strip()
+    if not drive_base:
+        raise RuntimeError("CONFIG['drive_base_path'] is missing or empty. Set it to your Google Drive path (e.g. /content/drive/MyDrive/ugc_pipeline).")
 
     mount_drive()
     paths = create_folder_structure(cfg)
@@ -112,7 +123,9 @@ def run_pipeline(config: dict | None = None) -> None:
         print(f"\n=== Generating Video {video_idx}/{cfg['video_count']} ===", flush=True)
         try:
             plan = generate_scene_plan(cfg)
-            scenes = plan["scenes"]
+            scenes = plan.get("scenes") or []
+            if len(scenes) < 1:
+                raise RuntimeError("Groq returned no scenes. Check API key and retry.")
 
             composited_paths: list[Path] = []
             audio_paths: list[Path | None] = []
@@ -139,15 +152,17 @@ def run_pipeline(config: dict | None = None) -> None:
             # Create merged audio by concat (ffmpeg) even before final mux.
             # This mirrors the assembler logic; duplicated here to keep captions generation explicit.
             audio_txt = work_dir / "audio_concat.txt"
-            existing_audio = [p for p in audio_paths if p and Path(p).exists()]
+            existing_audio = [p for p in audio_paths if p and Path(str(p)).exists()]
             if existing_audio:
-                audio_txt.write_text("".join([f"file '{str(Path(p).resolve())}'\n" for p in existing_audio]), encoding="utf-8")
+                audio_txt.write_text("".join([f"file '{str(Path(str(p)).resolve())}'\n" for p in existing_audio]), encoding="utf-8")
                 import subprocess
-
-                subprocess.run(
-                    ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(audio_txt), "-c", "copy", str(merged_audio)],
+                r = subprocess.run(
+                    ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(Path(audio_txt)), "-c", "copy", str(Path(merged_audio))],
                     capture_output=True,
+                    text=True,
                 )
+                if r.returncode != 0 and not merged_audio.exists():
+                    print(f"FFmpeg merge audio failed (video {video_idx}), continuing without merged audio for captions", flush=True)
             captions_srt = work_dir / "captions.srt"
             if merged_audio.exists() and merged_audio.stat().st_size > 10_000:
                 _generate_captions_whisper(merged_audio, captions_srt, model_name="base")

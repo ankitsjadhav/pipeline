@@ -74,7 +74,8 @@ def composite_type_a(scene: dict, config: dict) -> Image.Image:
     mockup_file = overlay.get("mockup_file") or "hand_01.png"
     screenshot_file = overlay.get("screenshot_file")
 
-    base = Path(config["drive_base_path"]) / "assets"
+    drive_base = str(config.get("drive_base_path") or "").strip()
+    base = Path(drive_base) / "assets"
     mockup_dir = base / "mockups"
     screenshots_dir = base / "screenshots"
     mockup_path = mockup_dir / mockup_file
@@ -95,7 +96,7 @@ def composite_type_a(scene: dict, config: dict) -> Image.Image:
     mockup_bgr = cv2.imread(str(mockup_path))
     if mockup_bgr is None:
         raise RuntimeError(f"Failed to read mockup: {mockup_path}")
-    screenshot = Image.open(screenshot_path).convert("RGB")
+    screenshot = Image.open(str(screenshot_path)).convert("RGB")
 
     corners = detect_screen_corners(mockup_bgr)
     if corners is None:
@@ -200,11 +201,12 @@ def get_text_position(position_str: str, base_size: tuple[int, int], text_h: int
 
 
 def add_logo(base: Image.Image, config: dict) -> Image.Image:
-    logo_path = Path(config["drive_base_path"]) / "assets" / "logo.png"
+    drive_base = str(config.get("drive_base_path") or "").strip()
+    logo_path = Path(drive_base) / "assets" / "logo.png"
     if not logo_path.exists():
         return base
     try:
-        logo = Image.open(logo_path).convert("RGBA")
+        logo = Image.open(str(logo_path)).convert("RGBA")
     except Exception:
         return base
     logo_w = int(base.width * 0.12)
@@ -227,14 +229,15 @@ def add_symbol_overlay(base: Image.Image, overlay: dict, config: dict) -> Image.
     if not symbol_file:
         return base
     niche = str(config.get("app_niche") or "generic")
-    base_assets = Path(config["drive_base_path"]) / "assets" / "symbols"
+    drive_base = str(config.get("drive_base_path") or "").strip()
+    base_assets = Path(drive_base) / "assets" / "symbols"
     candidates = [base_assets / niche / symbol_file, base_assets / "generic" / symbol_file]
     symbol_path = next((p for p in candidates if p.exists()), None)
     if symbol_path is None:
         print(f"Symbol {symbol_file} not found, skipping", flush=True)
         return base
 
-    symbol = remove_white_background(Image.open(symbol_path).convert("RGBA"))
+    symbol = remove_white_background(Image.open(str(symbol_path)).convert("RGBA"))
     symbol_w = int(base.width * 0.30)
     ratio = symbol_w / max(1, symbol.width)
     symbol_h = int(symbol.height * ratio)
@@ -269,7 +272,8 @@ def add_text_overlay(base: Image.Image, overlay: dict, config: dict) -> Image.Im
 
     font_sizes = {"large": 72, "medium": 52, "small": 36}
     base_size = int(font_sizes.get(size_key, 52) * (base.width / 1080))
-    fonts_dir = Path(config["drive_base_path"]) / "assets" / "fonts"
+    drive_base = str(config.get("drive_base_path") or "").strip()
+    fonts_dir = Path(drive_base) / "assets" / "fonts"
 
     def _is_devanagari(s: str) -> bool:
         return any(0x0900 <= ord(c) <= 0x097F for c in s)
@@ -319,7 +323,9 @@ def add_text_overlay(base: Image.Image, overlay: dict, config: dict) -> Image.Im
 
 
 def composite_type_b(image_path: Path, scene: dict, config: dict) -> Image.Image:
-    base = Image.open(image_path).convert("RGB")
+    if not image_path or not Path(str(image_path)).exists():
+        raise RuntimeError(f"Type B scene image not found: {image_path}")
+    base = Image.open(str(image_path)).convert("RGB")
     base = apply_color_grade(base, str(scene.get("color_grade") or "warm_golden"))
     overlay = scene.get("overlay") or {}
     if overlay.get("symbol_file"):
@@ -331,7 +337,9 @@ def composite_type_b(image_path: Path, scene: dict, config: dict) -> Image.Image
 
 
 def composite_type_c(image_path: Path, scene: dict, config: dict) -> Image.Image:
-    base = Image.open(image_path).convert("RGB")
+    if not image_path or not Path(str(image_path)).exists():
+        raise RuntimeError(f"Type C scene image not found: {image_path}")
+    base = Image.open(str(image_path)).convert("RGB")
     base = apply_color_grade(base, str(scene.get("color_grade") or "soft_warm"))
     return add_logo(base, config)
 
@@ -352,9 +360,14 @@ def composite_scene(scene: dict, image_path: Path | None, config: dict, composit
             raise RuntimeError(f"Scene {scene.get('id')} type C requires image_path")
         result = composite_type_c(image_path, scene, config)
 
-    out_path = composited_dir / f"scene_{int(scene['id']):02d}_composited.png"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    result.save(out_path, quality=95)
-    print(f"Scene {scene['id']} composited: {out_path}", flush=True)
+    sid = scene.get("id")
+    try:
+        sid = int(sid) if sid is not None else 0
+    except (TypeError, ValueError):
+        sid = 0
+    out_path = Path(composited_dir) / f"scene_{sid:02d}_composited.png"
+    Path(out_path.parent).mkdir(parents=True, exist_ok=True)
+    result.save(str(out_path), quality=95)
+    print(f"Scene {sid} composited: {out_path}", flush=True)
     return out_path
 

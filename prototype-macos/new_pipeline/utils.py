@@ -26,13 +26,16 @@ def mount_drive() -> None:
 
 
 def ensure_dir(p: str | Path) -> Path:
-    path = Path(p)
+    path = Path(str(p))
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def create_folder_structure(config: dict) -> dict[str, Path]:
-    base = Path(config["drive_base_path"])
+    drive_base = config.get("drive_base_path")
+    if not drive_base or not str(drive_base).strip():
+        raise RuntimeError("CONFIG['drive_base_path'] is missing or empty. Set it to your Google Drive path (e.g. /content/drive/MyDrive/ugc_pipeline).")
+    base = Path(str(drive_base).strip())
     # MyDrive/hf_cache is outside base per spec
     mydrive = Path("/content/drive/MyDrive")
     hf_cache = ensure_dir(mydrive / "hf_cache")
@@ -63,6 +66,9 @@ def create_folder_structure(config: dict) -> dict[str, Path]:
 
 
 def check_drive_space(min_free_gb: float = 1.0) -> None:
+    drive_path = Path("/content/drive")
+    if not drive_path.exists():
+        raise RuntimeError("Google Drive not mounted at /content/drive. Run mount_drive() first (e.g. from google.colab import drive; drive.mount('/content/drive')).")
     total, used, free = shutil.disk_usage("/content/drive")
     free_gb = free / (1024**3)
     if free_gb < min_free_gb:
@@ -74,7 +80,7 @@ def check_drive_space(min_free_gb: float = 1.0) -> None:
 
 
 def check_required_assets(paths: dict[str, Path]) -> None:
-    assets = paths["assets"]
+    assets = Path(str(paths["assets"]))
     mockups = assets / "mockups"
     screenshots = assets / "screenshots"
     if not mockups.exists() or not any(mockups.glob("*.png")):
@@ -83,16 +89,18 @@ def check_required_assets(paths: dict[str, Path]) -> None:
         raise RuntimeError("No app screenshot PNGs found in assets/screenshots/. Add at least 1 PNG and rerun.")
 
 
-def list_png_files(folder: Path) -> list[str]:
-    if not folder.exists():
+def list_png_files(folder: Path | str) -> list[str]:
+    folder_p = Path(str(folder))
+    if not folder_p.exists():
         return []
-    return sorted([p.name for p in folder.glob("*.png")])
+    return sorted([p.name for p in folder_p.glob("*.png")])
 
 
-def list_symbol_files(base_assets: Path, niche: str) -> list[str]:
+def list_symbol_files(base_assets: Path | str, niche: str) -> list[str]:
     files: list[str] = []
-    niche_dir = base_assets / "symbols" / niche
-    generic_dir = base_assets / "symbols" / "generic"
+    base_p = Path(str(base_assets))
+    niche_dir = base_p / "symbols" / niche
+    generic_dir = base_p / "symbols" / "generic"
     for d in (niche_dir, generic_dir):
         if d.exists():
             files.extend([p.name for p in d.glob("*.png")])
@@ -101,12 +109,14 @@ def list_symbol_files(base_assets: Path, niche: str) -> list[str]:
 
 # Checklist compatibility wrappers
 def get_available_files(config: dict, subfolder: str) -> list[str]:
-    base = Path(config["drive_base_path"]) / "assets" / subfolder
+    drive_base = str(config.get("drive_base_path") or "").strip()
+    base = Path(drive_base) / "assets" / subfolder
     return list_png_files(base)
 
 
 def get_available_symbols(config: dict) -> list[str]:
-    assets = Path(config["drive_base_path"]) / "assets"
+    drive_base = str(config.get("drive_base_path") or "").strip()
+    assets = Path(drive_base) / "assets"
     niche = str(config.get("app_niche") or "generic")
     return list_symbol_files(assets, niche)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -35,8 +36,8 @@ def _run_ffmpeg(args: list[str]) -> subprocess.CompletedProcess:
     return res
 
 
-def _abs(p: Path) -> str:
-    return str(Path(p).resolve())
+def _abs(p: Path | str) -> str:
+    return str(Path(str(p)).resolve())
 
 
 def _which(name: str) -> str | None:
@@ -85,7 +86,7 @@ def get_ffmpeg_grade(grade: str) -> str:
     return grades.get(grade, grades["soft_warm"])
 
 
-def generate_audio(scene: dict, config: dict, out_dir: Path) -> Path | None:
+def generate_audio(scene: dict, config: dict, out_dir: Path | str) -> Path | None:
     from gtts import gTTS
     try:
         from langdetect import detect  # type: ignore
@@ -114,15 +115,21 @@ def generate_audio(scene: dict, config: dict, out_dir: Path) -> Path | None:
         lang = "en"
 
     duration_sec = float(scene.get("duration_sec") or 3)
-    out_path = (ensure_dir(out_dir) / f"audio_{int(scene['id']):02d}.mp3").resolve()
+    sid = scene.get("id")
     try:
-        gTTS(text=text, lang=lang, slow=False).save(str(out_path))
+        sid = int(sid) if sid is not None else 0
+    except (TypeError, ValueError):
+        sid = 0
+    out_dir_p = Path(str(out_dir))
+    out_path = (ensure_dir(out_dir_p) / f"audio_{sid:02d}.mp3").resolve()
+    try:
+        gTTS(text=text, lang=lang, slow=False).save(str(Path(out_path)))
         return out_path
     except Exception as e:
-        print(f"gTTS failed for scene {scene.get('id')}: {e}", flush=True)
+        print(f"gTTS failed for scene {sid}: {e}", flush=True)
         try:
             alt = "en" if lang == "hi" else "hi"
-            gTTS(text=text, lang=alt, slow=False).save(str(out_path))
+            gTTS(text=text, lang=alt, slow=False).save(str(Path(out_path)))
             return out_path
         except Exception:
             # Silent audio fallback so pipeline continues.
@@ -136,22 +143,27 @@ def generate_audio(scene: dict, config: dict, out_dir: Path) -> Path | None:
                         "anullsrc=r=44100:cl=mono",
                         "-t",
                         f"{duration_sec:.3f}",
-                        _abs(out_path),
+                        _abs(Path(out_path)),
                     ]
                 )
                 return out_path
             except Exception as e2:
-                print(f"Silent audio fallback failed for scene {scene.get('id')}: {e2}", flush=True)
+                print(f"Silent audio fallback failed for scene {sid}: {e2}", flush=True)
                 return None
 
 
 def _write_concat_file(paths: list[Path], out_path: Path) -> None:
-    out_path = out_path.resolve()
-    out_path.write_text("".join([f"file '{str(p.resolve())}'\n" for p in paths]), encoding="utf-8")
+    out_path = Path(str(out_path)).resolve()
+    lines = []
+    for p in paths:
+        path_str = str(Path(str(p)).resolve())
+        path_str = path_str.replace("'", "'\\''")
+        lines.append(f"file '{path_str}'")
+    Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _merge_audio(audio_paths: list[Path], work_dir: Path) -> Path | None:
-    audio_paths = [p for p in audio_paths if p and p.exists()]
+    audio_paths = [Path(str(p)) for p in audio_paths if p and Path(str(p)).exists()]
     if not audio_paths:
         return None
     concat_txt = work_dir / "audio_concat.txt"
@@ -192,8 +204,8 @@ def _assemble_with_xfade(scenes: list[dict], clip_paths: list[Path], work_dir: P
     if not clip_paths:
         raise RuntimeError("No clips to assemble")
     if len(clip_paths) == 1:
-        out = (work_dir / TEMP_VIDEO_FILENAME).resolve()
-        out.write_bytes(Path(clip_paths[0]).read_bytes())
+        out = (Path(work_dir) / TEMP_VIDEO_FILENAME).resolve()
+        shutil.copy2(str(Path(clip_paths[0])), str(out))
         return out
 
     out = (work_dir / TEMP_VIDEO_FILENAME).resolve()
@@ -226,7 +238,7 @@ def _assemble_with_xfade(scenes: list[dict], clip_paths: list[Path], work_dir: P
 
     args: list[str] = ["-y"]
     for p in clip_paths:
-        args += ["-i", _abs(Path(p))]
+        args += ["-i", _abs(p)]
     args += ["-filter_complex", filter_chain, "-map", last_v, "-c:v", "libx264", "-pix_fmt", "yuv420p", _abs(out)]
     _run_ffmpeg(args)
     if not out.exists():
@@ -242,7 +254,12 @@ def _generate_clip(scene: dict, img_path: Path, fps: int, width: int, height: in
     zoompan = get_zoompan_filter(movement, duration_frames, width, height)
     ff_grade = get_ffmpeg_grade(grade)
     fade_out_start = max(0.1, duration_sec - 0.25)
-    clip_path = (work_dir / f"clip_{int(scene['id']):02d}.mp4").resolve()
+    sid = scene.get("id")
+    try:
+        sid = int(sid) if sid is not None else 0
+    except (TypeError, ValueError):
+        sid = 0
+    clip_path = (work_dir / f"clip_{sid:02d}.mp4").resolve()
     try:
         _run_ffmpeg(
             [
@@ -274,7 +291,7 @@ def _generate_clip(scene: dict, img_path: Path, fps: int, width: int, height: in
 
 
 def _burn_subtitles(video_in: Path, srt_path: Path, video_out: Path) -> None:
-    path_str = str(srt_path.resolve()).replace("'", "'\\''")
+    path_str = str(Path(str(srt_path)).resolve()).replace("'", "'\\''")
     vf = f"subtitles='{path_str}'"
     _run_ffmpeg(
         [
@@ -292,13 +309,14 @@ def _burn_subtitles(video_in: Path, srt_path: Path, video_out: Path) -> None:
     )
 
 
-def _ffprobe_ok(mp4_path: Path) -> bool:
+def _ffprobe_ok(mp4_path: Path | str) -> bool:
     r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", str(mp4_path)],
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", str(Path(str(mp4_path)))],
         capture_output=True,
         text=True,
     )
-    return r.returncode == 0 and mp4_path.exists() and mp4_path.stat().st_size > 10_000
+    p = Path(str(mp4_path))
+    return r.returncode == 0 and p.exists() and p.stat().st_size > 10_000
 
 
 def assemble_video(
@@ -322,21 +340,21 @@ def assemble_video(
     ensure_ffmpeg_installed()
     fps = 30
     width, height = get_dimensions(str(config.get("output_format") or "reels"))
-    work_dir = ensure_dir(work_dir).resolve()
-    output_dir = ensure_dir(output_dir).resolve()
+    work_dir = Path(str(ensure_dir(work_dir).resolve()))
+    output_dir = Path(str(ensure_dir(output_dir).resolve()))
 
     clip_paths: list[Path] = []
     clip_audio_paths: list[Path] = []
     used_scenes: list[dict] = []
     for scene, img_path, a in zip(scenes, composited_paths, audio_paths):
-        if not img_path or not Path(img_path).exists():
+        if not img_path or not Path(str(img_path)).exists():
             continue
-        clip = _generate_clip(scene, Path(img_path), fps, width, height, work_dir)
+        clip = _generate_clip(scene, Path(str(img_path)), fps, width, height, work_dir)
         if clip:
             clip_paths.append(clip)
             used_scenes.append(scene)
-            if a and Path(a).exists():
-                clip_audio_paths.append(Path(a))
+            if a and Path(str(a)).exists():
+                clip_audio_paths.append(Path(str(a)))
 
     if not clip_paths:
         raise RuntimeError("No clips generated. Check compositing output and FFmpeg logs.")
@@ -364,13 +382,13 @@ def assemble_video(
             ]
         )
     else:
-        out_path.write_bytes(temp_video.read_bytes())
+        shutil.copy2(str(Path(temp_video)), str(Path(out_path)))
 
     # Burn captions last (optional)
-    if captions_srt and captions_srt.exists():
+    if captions_srt and Path(str(captions_srt)).exists():
         subtitled = (work_dir / f"video_{video_index:02d}_sub.mp4").resolve()
-        _burn_subtitles(out_path, captions_srt, subtitled)
-        out_path.write_bytes(subtitled.read_bytes())
+        _burn_subtitles(Path(str(out_path)), Path(str(captions_srt)), Path(str(subtitled)))
+        shutil.copy2(str(Path(subtitled)), str(Path(out_path)))
 
     if not _ffprobe_ok(out_path):
         raise RuntimeError(f"Output video validation failed for {out_path}")

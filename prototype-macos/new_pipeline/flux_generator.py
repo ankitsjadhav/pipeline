@@ -41,18 +41,44 @@ def get_dimensions(output_format: str) -> tuple[int, int]:
 
 
 def load_flux_model(config):
-    import torch
-    from diffusers import FluxPipeline
-    print("Loading FLUX.1 Schnell in bfloat16 with CPU offload...")
-    pipe = FluxPipeline.from_pretrained(
-        "black-forest-labs/FLUX.1-schnell",
-        torch_dtype=torch.bfloat16,
-        use_safetensors=True,
-    )
-    pipe.enable_sequential_cpu_offload()
-    pipe.vae.enable_slicing()
-    pipe.vae.enable_tiling()
-    print("✅ FLUX loaded successfully")
+    """
+    Load FLUX.1 Schnell. Torch and diffusers are imported only here (single load).
+    Colab: run Cell 1 once, restart runtime, then run only Cell 2. Do not import torch in the notebook.
+    """
+    # Ensure env before any torch/transformers/diffusers import (avoids Colab tokenizer/torch conflicts)
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    try:
+        import torch
+    except Exception as e:
+        raise RuntimeError(
+            "Failed to import torch. In Colab: run Cell 1, then Runtime → Restart runtime, then run only Cell 2. Do not pip install torch."
+        ) from e
+    try:
+        from diffusers import FluxPipeline
+    except Exception as e:
+        raise RuntimeError(
+            "Failed to import diffusers. Restart runtime after Cell 1, then run only Cell 2. If error persists, try: pip install -U diffusers transformers."
+        ) from e
+
+    print("Loading FLUX.1 Schnell (bfloat16, CPU offload)...", flush=True)
+    print(f"  Torch {getattr(torch, '__version__', '?')} | CUDA: {torch.cuda.is_available()} | Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'}", flush=True)
+    try:
+        pipe = FluxPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-schnell",
+            torch_dtype=torch.bfloat16,
+            use_safetensors=True,
+        )
+        pipe.enable_sequential_cpu_offload()
+        pipe.vae.enable_slicing()
+        pipe.vae.enable_tiling()
+    except (AssertionError, RuntimeError) as e:
+        err_msg = str(e).lower()
+        if "docstring" in err_msg or "dlpack" in err_msg or "already" in err_msg:
+            raise RuntimeError(
+                "Colab torch/diffusers conflict. Run Cell 1 once, then Runtime → Restart runtime, then run only Cell 2. Do not import torch in the notebook."
+            ) from e
+        raise
+    print("✅ FLUX loaded successfully", flush=True)
     return pipe
 
 
@@ -78,8 +104,16 @@ def generate_image(pipe, scene: dict, config: dict, images_dir: Path) -> Path | 
     prompt = flux_prompt + HARDCODED_SUFFIX + ", " + QUALITY_ADDITION
 
     import torch
-    out_path = images_dir / f"scene_{int(scene['id']):02d}.png"
-    ensure_dir(out_path.parent)
+    scene_id = scene.get("id")
+    if scene_id is None:
+        scene_id = 0
+    try:
+        scene_id = int(scene_id)
+    except (TypeError, ValueError):
+        scene_id = 0
+    images_dir_p = Path(str(images_dir))
+    out_path = images_dir_p / f"scene_{scene_id:02d}.png"
+    ensure_dir(Path(out_path.parent))
 
     # T4-safe: generate at small resolution only; never pass 1920x1080 to FLUX
     FALLBACK_RESOLUTIONS = [(768, 432), (640, 360), (512, 288)]
@@ -101,11 +135,11 @@ def generate_image(pipe, scene: dict, config: dict, images_dir: Path) -> Path | 
             )
             image = result.images[0]
             if _is_black_image(image):
-                print(f"Black image detected (scene {scene['id']}) at {gen_w}x{gen_h}, trying next resolution...", flush=True)
+                print(f"Black image detected (scene {scene_id}) at {gen_w}x{gen_h}, trying next resolution...", flush=True)
                 continue
             break
         except torch.cuda.OutOfMemoryError as e:  # type: ignore[attr-defined]
-            print(f"OOM at {gen_w}x{gen_h} (scene {scene['id']}), clearing cache and trying next size...", flush=True)
+            print(f"OOM at {gen_w}x{gen_h} (scene {scene_id}), clearing cache and trying next size...", flush=True)
             last_err = e
             torch.cuda.empty_cache()
             gc.collect()
@@ -118,21 +152,32 @@ def generate_image(pipe, scene: dict, config: dict, images_dir: Path) -> Path | 
 
     if image is None:
         raise RuntimeError(
-            f"FLUX generation failed for scene {scene.get('id')} after all resolution fallbacks (768x432, 640x360, 512x288). Last error: {last_err}"
+            f"FLUX generation failed for scene {scene_id} after all resolution fallbacks (768x432, 640x360, 512x288). Last error: {last_err}"
         )
 
     # Upscale to 1920x1080 with PIL (never pass 1920x1080 to the pipeline)
     image = image.resize(UPSCALE_SIZE, Image.Resampling.LANCZOS)
 
     try:
-        image.save(out_path)
-    except Exception:
+        image.save(str(out_path))
+    except Exception as e1:
         tmp = Path("/content/images")
         ensure_dir(tmp)
-        tmp_path = tmp / out_path.name
-        image.save(tmp_path)
-        tmp_path.replace(out_path)
-    print(f"Scene {scene['id']} image saved: {out_path}", flush=True)
+        tmp_path = Path(str(tmp)) / out_path.name
+        try:
+            image.save(str(tmp_path))
+        except Exception as e2:
+            raise RuntimeError(f"Failed to save FLUX image to Drive or /content: {e1!r}; fallback: {e2!r}") from e2
+        try:
+            import shutil
+            shutil.copy2(str(Path(tmp_path)), str(Path(out_path)))
+        except Exception:
+            Path(out_path).write_bytes(Path(tmp_path).read_bytes())
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+    print(f"Scene {scene_id} image saved: {out_path}", flush=True)
 
     torch.cuda.empty_cache()
     gc.collect()
