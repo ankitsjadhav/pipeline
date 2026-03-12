@@ -33,7 +33,7 @@ STRICT FLUX PROMPT RULES (apply to every scene, every niche, no exceptions):
 
 SYMBOL AND OVERLAY RULES:
 - If the niche has associated symbols, icons, or visual elements, specify them in the overlay field as symbol_file
-- The code will render these from real PNG asset files — do not ask FLUX to generate them
+- The code will render these from real image asset files (PNG/JPG/JPEG) — do not ask FLUX to generate them
 - Pick symbol_file names that match what would logically exist in the niche subfolder
 
 CAMERA MOVEMENT — pick one per scene, never repeat the same movement twice in a row:

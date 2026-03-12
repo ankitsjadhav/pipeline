@@ -47,17 +47,18 @@ def setup_assets(config: dict) -> dict[str, Path]:
     for folder in ("astrology", "fitness", "finance", "food", "generic"):
         ensure_dir(base / folder)
 
-    # Placeholder logo path
-    logo_path = paths["assets"] / "logo.png"
-    if not logo_path.exists():
-        print(f"NOTE: Add your transparent logo at: {logo_path}", flush=True)
+    # Check for logo (png, jpg, or jpeg)
+    assets_dir = paths["assets"]
+    logo_found = any((assets_dir / f"logo{ext}").exists() for ext in (".png", ".jpg", ".jpeg"))
+    if not logo_found:
+        print("NOTE: Add your logo as assets/logo.png, logo.jpg, or logo.jpeg", flush=True)
 
     print("\n=== SETUP COMPLETE ===", flush=True)
     print("Now manually add these to Google Drive:", flush=True)
-    print("  1) Phone mockup PNGs → assets/mockups/", flush=True)
-    print("  2) App screenshot PNGs → assets/screenshots/", flush=True)
-    print("  3) Brand logo PNG → assets/logo.png", flush=True)
-    print("  4) Niche symbol PNGs → assets/symbols/<your_niche>/", flush=True)
+    print("  1) Phone mockup images (PNG/JPG/JPEG) → assets/mockups/", flush=True)
+    print("  2) App screenshot images (PNG/JPG/JPEG) → assets/screenshots/", flush=True)
+    print("  3) Brand logo (PNG/JPG/JPEG) → assets/logo.png (or .jpg / .jpeg)", flush=True)
+    print("  4) Niche symbol images (PNG/JPG/JPEG) → assets/symbols/<your_niche>/", flush=True)
 
     return paths
 

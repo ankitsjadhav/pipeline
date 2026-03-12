@@ -80,18 +80,18 @@ def composite_type_a(scene: dict, config: dict) -> Image.Image:
     screenshots_dir = base / "screenshots"
     mockup_path = mockup_dir / mockup_file
     if not mockup_path.exists():
-        pngs = sorted(mockup_dir.glob("*.png"))
-        if not pngs:
-            raise RuntimeError("Add phone mockup PNGs to assets/mockups/ on Drive")
-        mockup_path = pngs[0]
+        images = sorted(list(mockup_dir.glob("*.png")) + list(mockup_dir.glob("*.jpg")) + list(mockup_dir.glob("*.jpeg")))
+        if not images:
+            raise RuntimeError("Add phone mockup images (PNG/JPG/JPEG) to assets/mockups/ on Drive")
+        mockup_path = images[0]
     if not screenshot_file:
         raise RuntimeError("Type A overlay requires screenshot_file")
     screenshot_path = screenshots_dir / screenshot_file
     if not screenshot_path.exists():
-        pngs = sorted(screenshots_dir.glob("*.png"))
-        if not pngs:
-            raise RuntimeError("Add app screenshots to assets/screenshots/ on Drive")
-        screenshot_path = pngs[0]
+        images = sorted(list(screenshots_dir.glob("*.png")) + list(screenshots_dir.glob("*.jpg")) + list(screenshots_dir.glob("*.jpeg")))
+        if not images:
+            raise RuntimeError("Add app screenshot images (PNG/JPG/JPEG) to assets/screenshots/ on Drive")
+        screenshot_path = images[0]
 
     mockup_bgr = cv2.imread(str(mockup_path))
     if mockup_bgr is None:
@@ -202,8 +202,14 @@ def get_text_position(position_str: str, base_size: tuple[int, int], text_h: int
 
 def add_logo(base: Image.Image, config: dict) -> Image.Image:
     drive_base = str(config.get("drive_base_path") or "").strip()
-    logo_path = Path(drive_base) / "assets" / "logo.png"
-    if not logo_path.exists():
+    assets_dir = Path(drive_base) / "assets"
+    logo_path = None
+    for ext in (".png", ".jpg", ".jpeg"):
+        p = assets_dir / f"logo{ext}"
+        if p.exists():
+            logo_path = p
+            break
+    if not logo_path or not logo_path.exists():
         return base
     try:
         logo = Image.open(str(logo_path)).convert("RGBA")
@@ -231,8 +237,18 @@ def add_symbol_overlay(base: Image.Image, overlay: dict, config: dict) -> Image.
     niche = str(config.get("app_niche") or "generic")
     drive_base = str(config.get("drive_base_path") or "").strip()
     base_assets = Path(drive_base) / "assets" / "symbols"
-    candidates = [base_assets / niche / symbol_file, base_assets / "generic" / symbol_file]
-    symbol_path = next((p for p in candidates if p.exists()), None)
+    symbol_stem = Path(symbol_file).stem
+    symbol_path = None
+    for d in (base_assets / niche, base_assets / "generic"):
+        if not d.exists():
+            continue
+        for ext in (".png", ".jpg", ".jpeg"):
+            p = d / f"{symbol_stem}{ext}"
+            if p.exists():
+                symbol_path = p
+                break
+        if symbol_path is not None:
+            break
     if symbol_path is None:
         print(f"Symbol {symbol_file} not found, skipping", flush=True)
         return base

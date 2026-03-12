@@ -32,8 +32,8 @@ def ensure_dir(p: str | Path) -> Path:
 
 
 def _glob_images(folder: Path) -> list[Path]:
-    """Return paths for *.png and *.jpg in folder (mockups, screenshots, symbols, etc.)."""
-    return list(folder.glob("*.png")) + list(folder.glob("*.jpg"))
+    """Return paths for *.png, *.jpg, *.jpeg in folder (mockups, screenshots, symbols, etc.)."""
+    return list(folder.glob("*.png")) + list(folder.glob("*.jpg")) + list(folder.glob("*.jpeg"))
 
 
 def create_folder_structure(config: dict) -> dict[str, Path]:
@@ -89,9 +89,9 @@ def check_required_assets(paths: dict[str, Path]) -> None:
     mockups = assets / "mockups"
     screenshots = assets / "screenshots"
     if not mockups.exists() or not any(_glob_images(mockups)):
-        raise RuntimeError("No mockup images (PNG/JPG) found in assets/mockups/. Add at least 1 image and rerun.")
+        raise RuntimeError("No mockup images (PNG/JPG/JPEG) found in assets/mockups/. Add at least 1 image and rerun.")
     if not screenshots.exists() or not any(_glob_images(screenshots)):
-        raise RuntimeError("No app screenshot images (PNG/JPG) found in assets/screenshots/. Add at least 1 image and rerun.")
+        raise RuntimeError("No app screenshot images (PNG/JPG/JPEG) found in assets/screenshots/. Add at least 1 image and rerun.")
 
 
 def list_png_files(folder: Path | str) -> list[str]:
