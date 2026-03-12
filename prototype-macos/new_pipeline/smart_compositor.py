@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 
 import cv2
+
+from utils import _glob_images
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageFont, ImageDraw
 
@@ -70,32 +72,24 @@ def _center_crop_to_aspect(img: Image.Image, aspect: float) -> Image.Image:
 
 
 def composite_type_a(scene: dict, config: dict) -> Image.Image:
-    overlay = scene.get("overlay") or {}
-    mockup_file = overlay.get("mockup_file") or "hand_01.png"
-    screenshot_file = overlay.get("screenshot_file")
-
     drive_base = str(config.get("drive_base_path") or "").strip()
     base = Path(drive_base) / "assets"
     mockup_dir = base / "mockups"
     screenshots_dir = base / "screenshots"
-    mockup_path = mockup_dir / mockup_file
-    if not mockup_path.exists():
-        images = sorted(list(mockup_dir.glob("*.png")) + list(mockup_dir.glob("*.jpg")) + list(mockup_dir.glob("*.jpeg")))
-        if not images:
-            raise RuntimeError("Add phone mockup images (PNG/JPG/JPEG) to assets/mockups/ on Drive")
-        mockup_path = images[0]
-    if not screenshot_file:
-        raise RuntimeError("Type A overlay requires screenshot_file")
-    screenshot_path = screenshots_dir / screenshot_file
-    if not screenshot_path.exists():
-        images = sorted(list(screenshots_dir.glob("*.png")) + list(screenshots_dir.glob("*.jpg")) + list(screenshots_dir.glob("*.jpeg")))
-        if not images:
-            raise RuntimeError("Add app screenshot images (PNG/JPG/JPEG) to assets/screenshots/ on Drive")
-        screenshot_path = images[0]
+
+    mockup_images = sorted(_glob_images(mockup_dir))
+    if not mockup_images:
+        raise RuntimeError("assets/mockups/ is empty; add at least one image (PNG/JPG/JPEG).")
+    mockup_path = mockup_images[0]
+
+    screenshot_images = sorted(_glob_images(screenshots_dir))
+    if not screenshot_images:
+        raise RuntimeError("assets/screenshots/ is empty; add at least one image (PNG/JPG/JPEG).")
+    screenshot_path = screenshot_images[0]
 
     mockup_bgr = cv2.imread(str(mockup_path))
     if mockup_bgr is None:
-        raise RuntimeError(f"Failed to read mockup: {mockup_path}")
+        raise RuntimeError("No valid mockup image could be read from assets/mockups/.")
     screenshot = Image.open(str(screenshot_path)).convert("RGB")
 
     corners = detect_screen_corners(mockup_bgr)
@@ -231,28 +225,19 @@ def add_logo(base: Image.Image, config: dict) -> Image.Image:
 
 
 def add_symbol_overlay(base: Image.Image, overlay: dict, config: dict) -> Image.Image:
-    symbol_file = overlay.get("symbol_file")
-    if not symbol_file:
-        return base
     niche = str(config.get("app_niche") or "generic")
     drive_base = str(config.get("drive_base_path") or "").strip()
     base_assets = Path(drive_base) / "assets" / "symbols"
-    symbol_stem = Path(symbol_file).stem
-    symbol_path = None
-    for d in (base_assets / niche, base_assets / "generic"):
-        if not d.exists():
-            continue
-        for ext in (".png", ".jpg", ".jpeg"):
-            p = d / f"{symbol_stem}{ext}"
-            if p.exists():
-                symbol_path = p
-                break
-        if symbol_path is not None:
-            break
-    if symbol_path is None:
-        print(f"Symbol {symbol_file} not found, skipping", flush=True)
+    niche_dir = base_assets / niche
+    generic_dir = base_assets / "generic"
+
+    symbol_images = sorted(_glob_images(niche_dir)) if niche_dir.exists() else []
+    if not symbol_images:
+        symbol_images = sorted(_glob_images(generic_dir)) if generic_dir.exists() else []
+    if not symbol_images:
         return base
 
+    symbol_path = symbol_images[0]
     symbol = remove_white_background(Image.open(str(symbol_path)).convert("RGBA"))
     symbol_w = int(base.width * 0.30)
     ratio = symbol_w / max(1, symbol.width)
@@ -340,12 +325,11 @@ def add_text_overlay(base: Image.Image, overlay: dict, config: dict) -> Image.Im
 
 def composite_type_b(image_path: Path, scene: dict, config: dict) -> Image.Image:
     if not image_path or not Path(str(image_path)).exists():
-        raise RuntimeError(f"Type B scene image not found: {image_path}")
+        raise RuntimeError("Type B requires a generated scene image.")
     base = Image.open(str(image_path)).convert("RGB")
     base = apply_color_grade(base, str(scene.get("color_grade") or "warm_golden"))
     overlay = scene.get("overlay") or {}
-    if overlay.get("symbol_file"):
-        base = add_symbol_overlay(base, overlay, config)
+    base = add_symbol_overlay(base, overlay, config)
     if overlay.get("text"):
         base = add_text_overlay(base, overlay, config)
     base = add_logo(base, config)
@@ -354,7 +338,7 @@ def composite_type_b(image_path: Path, scene: dict, config: dict) -> Image.Image
 
 def composite_type_c(image_path: Path, scene: dict, config: dict) -> Image.Image:
     if not image_path or not Path(str(image_path)).exists():
-        raise RuntimeError(f"Type C scene image not found: {image_path}")
+        raise RuntimeError("Type C requires a generated scene image.")
     base = Image.open(str(image_path)).convert("RGB")
     base = apply_color_grade(base, str(scene.get("color_grade") or "soft_warm"))
     return add_logo(base, config)
@@ -369,11 +353,11 @@ def composite_scene(scene: dict, image_path: Path | None, config: dict, composit
         result = composite_type_a(scene, config)
     elif scene_type == "B":
         if image_path is None:
-            raise RuntimeError(f"Scene {scene.get('id')} type B requires image_path")
+            raise RuntimeError("Type B requires a generated scene image.")
         result = composite_type_b(image_path, scene, config)
     else:
         if image_path is None:
-            raise RuntimeError(f"Scene {scene.get('id')} type C requires image_path")
+            raise RuntimeError("Type C requires a generated scene image.")
         result = composite_type_c(image_path, scene, config)
 
     sid = scene.get("id")
