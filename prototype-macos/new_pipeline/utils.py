@@ -31,6 +31,11 @@ def ensure_dir(p: str | Path) -> Path:
     return path
 
 
+def _glob_images(folder: Path) -> list[Path]:
+    """Return paths for *.png and *.jpg in folder (mockups, screenshots, symbols, etc.)."""
+    return list(folder.glob("*.png")) + list(folder.glob("*.jpg"))
+
+
 def create_folder_structure(config: dict) -> dict[str, Path]:
     drive_base = config.get("drive_base_path")
     if not drive_base or not str(drive_base).strip():
@@ -83,17 +88,17 @@ def check_required_assets(paths: dict[str, Path]) -> None:
     assets = Path(str(paths["assets"]))
     mockups = assets / "mockups"
     screenshots = assets / "screenshots"
-    if not mockups.exists() or not any(mockups.glob("*.png")):
-        raise RuntimeError("No mockup PNGs found in assets/mockups/. Add at least 1 PNG and rerun.")
-    if not screenshots.exists() or not any(screenshots.glob("*.png")):
-        raise RuntimeError("No app screenshot PNGs found in assets/screenshots/. Add at least 1 PNG and rerun.")
+    if not mockups.exists() or not any(_glob_images(mockups)):
+        raise RuntimeError("No mockup images (PNG/JPG) found in assets/mockups/. Add at least 1 image and rerun.")
+    if not screenshots.exists() or not any(_glob_images(screenshots)):
+        raise RuntimeError("No app screenshot images (PNG/JPG) found in assets/screenshots/. Add at least 1 image and rerun.")
 
 
 def list_png_files(folder: Path | str) -> list[str]:
     folder_p = Path(str(folder))
     if not folder_p.exists():
         return []
-    return sorted([p.name for p in folder_p.glob("*.png")])
+    return sorted([p.name for p in _glob_images(folder_p)])
 
 
 def list_symbol_files(base_assets: Path | str, niche: str) -> list[str]:
@@ -103,7 +108,7 @@ def list_symbol_files(base_assets: Path | str, niche: str) -> list[str]:
     generic_dir = base_p / "symbols" / "generic"
     for d in (niche_dir, generic_dir):
         if d.exists():
-            files.extend([p.name for p in d.glob("*.png")])
+            files.extend([p.name for p in _glob_images(d)])
     return sorted(set(files))
 
 
